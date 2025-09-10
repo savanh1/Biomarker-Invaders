@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Biomarker Invaders — Antibody Shooter (Thick)</title>
+<style>
+  :root{--bg:#07111f;--panel:#0f1b32;--text:#e7efff;--accent:#ffd64d;--good:#6ee7a8;--bad:#ff6565;--mono:ui-monospace,Consolas,Menlo,monospace}
+  html,body{height:100%;margin:0;background:radial-gradient(1200px 500px at 50% -10%,#16264a,#07111f 60%);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{display:flex;justify-content:center;align-items:center;padding:16px}
+  .card{width:980px;max-width:98vw;background:linear-gradient(180deg,#0c1630,#0a1326);border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.45);padding:14px}
+  h1{margin:0 0 8px;font-size:26px;text-align:center}
+  h1 span{color:var(--accent)}
+  .hud{display:flex;gap:14px;justify-content:center;font-family:var(--mono);font-size:14px;margin:8px 0 10px}
+  .status{text-align:center;font-family:var(--mono)}
+  .grid{display:grid;grid-template-columns: 1fr 320px;gap:14px}
+  canvas{background:#06132b;border:2px solid #1a2c62;border-radius:12px}
+  .panel{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
+  .panel h3{margin:4px 0}
+  .btn{appearance:none;border:1px solid rgba(255,255,255,.16);background:#13224a;color:#e7efff;border-radius:10px;padding:8px 10px;font-family:var(--mono);cursor:pointer}
+  .btn:hover{border-color:#3c63db}
+  select.btn{width:100%}
+  .legend{font-size:13px;line-height:1.35}
+  .kbd{font-family:var(--mono);background:#131f3b;border:1px solid rgba(255,255,255,.14);padding:1px 6px;border-radius:6px}
+  .pill{display:inline-block;border:1px solid rgba(255,255,255,.12);padding:2px 6px;border-radius:999px;font-family:var(--mono);font-size:12px;margin:0 4px 4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1><span>Biomarker Invaders</span> — Translational Challenge</h1>
+    <div class="hud">Score: <b id="score">0</b> | Lives: <b id="lives">3</b> | Level: <b id="level">1</b> | Specificity: <b id="spec">100%</b> | Sensitivity: <b id="sens">100%</b></div>
+    <div class="status">Program: <b id="programName">NSCLC — EGFR targeted</b></div>
+
+    <div class="grid">
+      <canvas id="game" width="800" height="640" aria-label="game"></canvas>
+      <aside class="panel">
+        <h3>How to play</h3>
+        <p class="legend">Move with <span class="kbd">←</span><span class="kbd">→</span>. Shoot with <span class="kbd">Space</span>. Hit only biomarkers relevant to the current program to recruit patients. Hitting off-target labels drops <b>specificity</b>; missing too many on-target labels drops <b>sensitivity</b>. When either metric falls below 60%, the trial fails.</p>
+        <label>Program</label>
+        <select id="programSelect" class="btn">
+          <option value="EGFR">NSCLC — EGFR targeted</option>
+          <option value="BRAF">Melanoma — BRAF V600</option>
+          <option value="MSI">GI — MSI-H / dMMR</option>
+          <option value="HER2">Breast/Gastric — HER2+</option>
+        </select>
+        <div style="height:8px"></div>
+        <button id="restart" class="btn">Restart (R)</button>
+        <div style="height:10px"></div>
+        <div class="legend"><b>Biomarker dictionary</b></div>
+        <div id="dict"></div>
+        <div style="height:8px"></div>
+        <div class="legend"><b>Power-ups</b><br>
+          <span class="pill">QC</span> Tightens specificity for 10 s.<br>
+          <span class="pill">Block</span> Reduces background for 10 s.<br>
+          <span class="pill">Controls</span> Restores sensitivity from missed hits.
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PROGRAMS = {
+    EGFR: { name: 'NSCLC — EGFR targeted', targets: ['L858R','Ex19del','T790M','G719A','L861Q'], distractors: ['V600E','G12C','EML4-ALK','KRAS G13D','METex14'] },
+    BRAF: { name: 'Melanoma — BRAF V600', targets: ['V600E','V600K','V600R'], distractors: ['L858R','NRAS Q61R','KIT L576P','G12D','MSI-H'] },
+    MSI:  { name: 'GI — MSI-H / dMMR', targets: ['MSI-H','dMMR','MLH1 loss','MSH2 loss','PMS2 loss'], distractors: ['HER2+','V600E','T790M','PD-L1 low','ALK fusion'] },
+    HER2: { name: 'Breast/Gastric — HER2+', targets: ['HER2 3+','HER2 amp','ERBB2'], distractors: ['MSI-H','V600E','EGFR L858R','PIK3CA','KRAS G12D'] }
+  };
+
+  const dictEl = document.getElementById('dict');
+  for (const [,v] of Object.entries(PROGRAMS)){
+    const line = document.createElement('div');
+    line.className = 'legend';
+    line.innerHTML = `<span class="pill">${v.name.split(' — ')[0]}</span> Targets: ${v.targets.join(', ')}.`;
+    dictEl.appendChild(line);
+  }
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  let programKey = 'EGFR';
+  let score = 0, level = 1, lives = 3;
+  let specificity = 100, sensitivity = 100;
+  let running = true;
+
+  const player = { x: W/2, y: H-48, speed: 6 };
+  let bullets = [];
+  let invaders = [];
+  let powerups = [];
+  const keys = new Set();
+
+  function spawnWave(){
+    invaders = [];
+    const conf = PROGRAMS[programKey];
+    const labels = [...conf.targets.map(t=>({t,hitValue:true})), ...conf.distractors.map(t=>({t,hitValue:false}))].sort(()=>Math.random()-0.5);
+    const cols = 8, rows = 4, spacingX = 84, spacingY = 56;
+    const startX = (W - (cols-1)*spacingX)/2, startY = 80;
+    let idx = 0;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const label = labels[idx % labels.length]; idx++;
+        invaders.push({ x:startX + c*spacingX, y:startY + r*spacingY, w:46, h:26, vx:0.7 + level*0.05, dir:1, label:label.t, good:label.hitValue, alive:true, t:0 });
+      }
+    }
+  }
+
+  function spawnPower(kind){ const x = 40 + Math.random()*(W-80); powerups.push({x,y:0,kind,vy:2}); }
+
+  window.addEventListener('keydown', e=>{ if(['ArrowLeft','ArrowRight',' ','r','R','p','P'].includes(e.key)) e.preventDefault(); keys.add(e.key); if(e.key===' '){ shoot(); } if(e.key==='R'||e.key==='r'){ restart(); } if(e.key==='P'||e.key==='p'){ running = !running; } });
+  window.addEventListener('keyup', e=> keys.delete(e.key));
+
+  function shoot(){ bullets.push({ x: player.x, y: player.y-50, vy: -8 }); }
+
+  function restart(){ score=0; level=1; lives=3; specificity=100; sensitivity=100; running=true; bullets=[]; powerups=[]; player.x=W/2; spawnWave(); }
+
+  function step(){
+    if(!running){ draw(); requestAnimationFrame(step); return; }
+    if(keys.has('ArrowLeft'))  player.x -= player.speed;
+    if(keys.has('ArrowRight')) player.x += player.speed;
+    player.x = Math.max(40, Math.min(W-40, player.x));
+
+    bullets.forEach(b=> b.y += b.vy);
+    bullets = bullets.filter(b=> b.y>-30);
+
+    let reachedEdge = false;
+    for(const m of invaders){
+      if(!m.alive) continue; m.t += 1; m.x += m.vx*m.dir; if(m.x < 30 || m.x > W-30) reachedEdge = true; if(m.t % 240 === 0) spawnPower(['QC','Block','Controls'][Math.floor(Math.random()*3)]);
+    }
+    if(reachedEdge){ for(const m of invaders){ m.y += 18; m.dir *= -1; } }
+
+    for(const b of bullets){
+      for(const m of invaders){
+        if(!m.alive) continue;
+        if(Math.abs(b.x - m.x) < m.w/2 && Math.abs(b.y - m.y) < m.h/2){
+          m.alive = false; b.y = -9999;
+          if(m.good){ score += 150; sensitivity = Math.min(100, sensitivity + 2); }
+          else { score += 25; specificity = Math.max(0, specificity - 6); }
+        }
+      }
+    }
+
+    for(const m of invaders){ if(m.alive && m.good && m.y > H-120){ m.alive=false; sensitivity = Math.max(0, sensitivity - 8); }}
+
+    for(const p of powerups){ p.y += p.vy; if(Math.abs(p.x - player.x) < 36 && Math.abs(p.y - player.y) < 28){ applyPower(p.kind); p.y = H+999; }}
+    powerups = powerups.filter(p=> p.y < H+40);
+
+    if(specificity < 60 || sensitivity < 60){ lives -= 1; specificity = 100; sensitivity = 100; player.x = W/2; bullets=[]; powerups=[]; spawnWave(); if(lives<=0){ running=false; }}
+
+    if(invaders.every(m=>!m.alive)){ level += 1; score += 500; spawnWave(); }
+
+    draw();
+    requestAnimationFrame(step);
+  }
+
+  let timers = { qc:0, block:0, ctrl:0 };
+  function applyPower(kind){ if(kind==='QC'){ timers.qc=600; } if(kind==='Block'){ timers.block=600; } if(kind==='Controls'){ timers.ctrl=1; sensitivity = Math.min(100, sensitivity + 12);} }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawAntibody(player.x, player.y);
+
+    ctx.fillStyle = '#c084fc';
+    bullets.forEach(b=> ctx.fillRect(b.x-2,b.y-10,4,10));
+
+    for(const m of invaders){ if(!m.alive) continue; drawInvader(m); }
+    for(const p of powerups){ drawPower(p); }
+
+    if(timers.qc>0){ timers.qc--; labelTopLeft('QC active'); }
+    if(timers.block>0){ timers.block--; labelTopLeft('Blocking active', 20); }
+  }
+
+  // Thick, stylized IgG-like antibody
+  function drawAntibody(cx, cy){
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.lineCap = 'round';
+
+    // heavy chains: blue
+    ctx.strokeStyle = '#4da6ff';
+    ctx.lineWidth = 10;
+    // stem
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -34); ctx.stroke();
+    // arms
+    ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(-28, -64); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo( 28, -64); ctx.stroke();
+
+    // light chains: gray, slightly offset
+    ctx.strokeStyle = '#bfc7d1';
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(-5, -32); ctx.lineTo(-33, -62); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo( 5, -32); ctx.lineTo( 33, -62); ctx.stroke();
+
+    // tips (Fab) small rounded caps
+    ctx.fillStyle = '#4da6ff';
+    roundRect(-36, -70, 12, 12, 6);
+    roundRect( 24, -70, 12, 12, 6);
+
+    // Fc base
+    roundRect(-6,  -4, 12, 10, 4);
+    ctx.restore();
+  }
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawInvader(m){
+    ctx.save();
+    ctx.translate(m.x,m.y);
+    ctx.fillStyle = m.good ? '#6ee7a8' : '#ff6565';
+    ctx.beginPath();
+    ctx.moveTo(-22,8); ctx.quadraticCurveTo(0,-18,22,8); ctx.lineTo(12,12); ctx.lineTo(-12,12); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.font = '12px var(--mono)'; ctx.textAlign='center'; ctx.fillText(m.label, 0, -12);
+    ctx.restore();
+  }
+
+  function drawPower(p){
+    ctx.save(); ctx.translate(p.x,p.y);
+    ctx.fillStyle = '#8ab4ff'; ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#08132a'; ctx.font='10px var(--mono)'; ctx.textAlign='center'; ctx.fillText(p.kind.slice(0,1), 0, 3);
+    ctx.restore();
+  }
+
+  function labelTopLeft(text, row=0){ ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(8,8+row,160,18); ctx.fillStyle='#fff'; ctx.font='12px var(--mono)'; ctx.fillText(text, 14, 21+row); }
+
+  function updateHud(){
+    document.getElementById('score').textContent = score;
+    document.getElementById('lives').textContent = lives;
+    document.getElementById('level').textContent = level;
+    document.getElementById('spec').textContent = Math.round(specificity)+'%';
+    document.getElementById('sens').textContent = Math.round(sensitivity)+'%';
+    document.getElementById('programName').textContent = PROGRAMS[programKey].name;
+  }
+  setInterval(updateHud, 120);
+
+  document.getElementById('restart').addEventListener('click', restart);
+  const sel = document.getElementById('programSelect');
+  sel.addEventListener('change', () => { programKey = sel.value; document.getElementById('programName').textContent = PROGRAMS[programKey].name; spawnWave(); });
+
+  spawnWave();
+  step();
+})();
+</script>
+</body>
+</html>
