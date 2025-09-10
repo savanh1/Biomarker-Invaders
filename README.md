@@ -26,10 +26,8 @@ If sensitivity or specificity falls below 60%, the trial fails. Clear a wave to 
 ## Play Online
 Once GitHub Pages is enabled, your game will be live here:  
 ```
-https://savanh1.github.io/biomarker-invaders/
+[https://savanh1.github.io/biomarker-invaders/](https://savanh1.github.io/Biomarker-Invaders/)
 ```
-
-*(Replace with the exact link once Pages is set up.)*
 
 ## Development
 - Built in **HTML5 Canvas** + vanilla **JavaScript**.  
