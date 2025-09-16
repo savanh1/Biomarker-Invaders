@@ -1,38 +1,45 @@
-
 # Biomarker Invaders
 
-**Biomarker Invaders** is a browser-based game inspired by classic *Space Invaders*.  
-Instead of shooting aliens, you identify the correct biomarkers for different translational research programs.
+Biomarker Invaders is a browser-based arcade-style game inspired by classic *Space Invaders*.  
+Instead of aliens, you target biomarkers relevant to different translational research programs.
+
+---
 
 ## How to Play
-- Use **← / →** arrow keys to move the antibody shooter.  
-- Press **Space** to fire.  
-- Hit only the biomarkers relevant to the current program:
-  - Correct hits **increase sensitivity** and add points.
-  - Incorrect hits **reduce specificity**.
-- Power-ups:
-  - **QC** → Improves specificity for 10 seconds.  
-  - **Block** → Reduces background noise.  
-  - **Controls** → Restores sensitivity.  
+- **Desktop**  
+  - Use ← / → arrow keys to move the antibody shooter.  
+  - Press **Space** to fire.  
+  - Press **P** to pause.  
 
-If sensitivity or specificity falls below 60%, the trial fails. Clear a wave to advance to the next level.
+- **Mobile / Tablet**  
+  - On-screen buttons are available: ◀ ▶ FIRE PAUSE.  
+  - Tap and hold to move or fire continuously.  
+  - Works best in landscape mode.
+
+---
+
+## Rules
+- Correct hits **increase sensitivity** and add points.  
+- Incorrect hits **reduce specificity**.  
+- If either metric drops below 60%, the trial fails.  
+- Clear a wave to advance to the next level.
+
+---
 
 ## Programs Included
-- **NSCLC — EGFR targeted**  
-- **Melanoma — BRAF V600**  
-- **GI — MSI-H / dMMR**  
-- **Breast/Gastric — HER2+**
+- **NSCLC** — EGFR targeted  
+- **Melanoma** — BRAF V600  
+- **GI cancers** — MSI-H / dMMR  
+- **Breast/Gastric** — HER2+  
+
+---
 
 ## Play Online
-Once GitHub Pages is enabled, your game will be live here:  
-```
-https://savanh1.github.io/Biomarker-Invaders/
-```
+The live version is here:  
+👉 [Biomarker Invaders](https://savanh1.github.io/Biomarker-Invaders/)
 
-## Development
-- Built in **HTML5 Canvas** + vanilla **JavaScript**.  
-- No external libraries required.  
-- Works in Chrome, Firefox, and modern browsers.  
+---
 
-## License
-This project is licensed under the MIT License.  
+## Notes
+- Now fully supports **touch controls** for phones and tablets.  
+- Developed for fun outreach and teaching in **biomarkers** and **translational science**.  
