@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Biomarker Invaders — Antibody Shooter (Touch + Larger Power-ups)</title>
+<style>
+  :root{
+    --bg:#07111f; --panel:#0f1b32; --text:#e7efff; --accent:#ffd64d;
+    --good:#6ee7a8; --bad:#ff6565; --mono:ui-monospace,Consolas,Menlo,monospace
+  }
+  html,body{height:100%;margin:0;background:radial-gradient(1200px 500px at 50% -10%,#16264a,#07111f 60%);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{display:flex;justify-content:center;align-items:center;padding:12px}
+  .card{width:980px;max-width:98vw;background:linear-gradient(180deg,#0c1630,#0a1326);border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,.45);padding:12px}
+  h1{margin:0 0 8px;text-align:center;font-size:24px}
+  h1 span{color:var(--accent)}
+  .hud{display:flex;gap:10px;justify-content:center;font-family:var(--mono);font-size:13px;margin:6px 0 8px}
+  .status{text-align:center;font-family:var(--mono);font-size:13px}
+  .grid{display:grid;grid-template-columns: 1fr 320px;gap:12px}
+  @media (max-width: 920px){ .grid{grid-template-columns:1fr} }
+  canvas{background:#06132b;border:2px solid #1a2c62;border-radius:12px;touch-action:none}
+  .panel{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
+  .panel h3{margin:4px 0}
+  .btn{appearance:none;border:1px solid rgba(255,255,255,.16);background:#13224a;color:#e7efff;border-radius:10px;padding:8px 10px;font-family:var(--mono);cursor:pointer}
+  .btn:hover{border-color:#3c63db}
+  select.btn{width:100%}
+  .legend{font-size:13px;line-height:1.35}
+  .pill{display:inline-block;border:1px solid rgba(255,255,255,.12);padding:2px 6px;border-radius:999px;font-family:var(--mono);font-size:12px;margin:0 4px 4px 0}
+
+  /* Touch controls */
+  .touchpad{ position:fixed; left:0; right:0; bottom:10px; display:flex; justify-content:center; gap:16px; pointer-events:none; }
+  .touchpad .tbtn{ pointer-events:auto; min-width:88px; min-height:88px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.25); border-radius:18px; backdrop-filter:blur(6px); color:#e7efff; font-family:var(--mono); font-size:16px; display:flex; align-items:center; justify-content:center; user-select:none; -webkit-user-select:none; touch-action:none; }
+  .touchpad .tbtn:active{ background:rgba(255,255,255,0.18); border-color:#5a7cff; }
+  .touchpad .tbtn.small{ min-width:76px; min-height:76px; }
+  .touchpad .cluster{ display:flex; gap:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1><span>Biomarker Invaders</span> — Translational Challenge</h1>
+    <div class="hud">Score: <b id="score">0</b> | Lives: <b id="lives">3</b> | Level: <b id="level">1</b> | Specificity: <b id="spec">100%</b> | Sensitivity: <b id="sens">100%</b></div>
+    <div class="status">Program: <b id="programName">NSCLC — EGFR targeted</b></div>
+
+    <div class="grid">
+      <canvas id="game" width="800" height="640" aria-label="game canvas"></canvas>
+      <aside class="panel">
+        <h3>How to play</h3>
+        <p class="legend">
+          Desktop: ← → to move, Space to shoot. Mobile: use on-screen buttons.
+        </p>
+        <label>Program</label>
+        <select id="programSelect" class="btn">
+          <option value="EGFR">NSCLC — EGFR targeted</option>
+          <option value="BRAF">Melanoma — BRAF V600</option>
+          <option value="MSI">GI — MSI-H / dMMR</option>
+          <option value="HER2">Breast/Gastric — HER2+</option>
+        </select>
+        <div style="height:8px"></div>
+        <button id="restart" class="btn">Restart (R)</button>
+        <div style="height:10px"></div>
+        <div class="legend"><b>Power-ups</b><br>
+          <span class="pill">QC</span> Tightens specificity for 10 s (+100).<br>
+          <span class="pill">Block</span> Reduces background for 10 s (+100).<br>
+          <span class="pill">Ctrl</span> Restores sensitivity (+150).
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- Touch controls -->
+<div class="touchpad" id="touchpad" aria-hidden="true">
+  <div class="cluster">
+    <div class="tbtn" id="btnLeft">◀</div>
+    <div class="tbtn" id="btnRight">▶</div>
+  </div>
+  <div class="cluster">
+    <div class="tbtn small" id="btnFire">FIRE</div>
+    <div class="tbtn small" id="btnPause">PAUSE</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PROGRAMS = {
+    EGFR: { name: 'NSCLC — EGFR targeted', targets: ['L858R','Ex19del','T790M','G719A','L861Q'], distractors: ['V600E','G12C','EML4-ALK','KRAS G13D','METex14'] },
+    BRAF: { name: 'Melanoma — BRAF V600', targets: ['V600E','V600K','V600R'], distractors: ['L858R','NRAS Q61R','KIT L576P','G12D','MSI-H'] },
+    MSI:  { name: 'GI — MSI-H / dMMR', targets: ['MSI-H','dMMR','MLH1 loss','MSH2 loss','PMS2 loss'], distractors: ['HER2+','V600E','T790M','PD-L1 low','ALK fusion'] },
+    HER2: { name: 'Breast/Gastric — HER2+', targets: ['HER2 3+','HER2 amp','ERBB2'], distractors: ['MSI-H','V600E','EGFR L858R','PIK3CA','KRAS G12D'] }
+  };
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  let programKey = 'EGFR';
+  let score = 0, level = 1, lives = 3;
+  let specificity = 100, sensitivity = 100;
+  let running = true;
+
+  const player = { x: W/2, y: H-52, speed: 6 };
+  let bullets = [];
+  let invaders = [];
+  let powerups = []; // falling pickups
+  const keys = new Set();
+  let frame = 0;
+
+  const HUD = {
+    score: document.getElementById('score'),
+    lives: document.getElementById('lives'),
+    level: document.getElementById('level'),
+    spec: document.getElementById('spec'),
+    sens: document.getElementById('sens'),
+    prog: document.getElementById('programName')
+  };
+
+  function fitCanvas(){
+    const maxW = Math.min(800, window.innerWidth - 20);
+    const scale = maxW / 800;
+    canvas.style.width = (800 * scale) + 'px';
+    canvas.style.height = (640 * scale) + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  fitCanvas();
+
+  function spawnWave(){
+    invaders = [];
+    const conf = PROGRAMS[programKey];
+    const labels = [...conf.targets.map(t=>({t,hitValue:true})), ...conf.distractors.map(t=>({t,hitValue:false}))].sort(()=>Math.random()-0.5);
+    const cols = 8, rows = 4, spacingX = 84, spacingY = 56;
+    const startX = (W - (cols-1)*spacingX)/2, startY = 86;
+    let idx = 0;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const label = labels[idx % labels.length]; idx++;
+        invaders.push({ x:startX + c*spacingX, y:startY + r*spacingY, w:46, h:26, vx:0.7 + level*0.05, dir:1, label:label.t, good:label.hitValue, alive:true });
+      }
+    }
+  }
+
+  // Keyboard
+  window.addEventListener('keydown', e=>{
+    if(['ArrowLeft','ArrowRight',' ','r','R','p','P'].includes(e.key)) e.preventDefault();
+    keys.add(e.key);
+    if(e.key===' ') shoot();
+    if(e.key==='R'||e.key==='r') restart();
+    if(e.key==='P'||e.key==='p') running = !running;
+  });
+  window.addEventListener('keyup', e=> keys.delete(e.key));
+
+  function shoot(){ bullets.push({ x: player.x, y: player.y-54, vy: -8 }); }
+  function restart(){ score=0; level=1; lives=3; specificity=100; sensitivity=100; running=true; bullets=[]; powerups=[]; player.x=W/2; spawnWave(); }
+
+  function maybeSpawnPower(){
+    if(frame % Math.max(210 - level*10, 110) === 0){
+      const kinds = ['QC','Block','Ctrl'];
+      const kind = kinds[Math.floor(Math.random()*kinds.length)];
+      powerups.push({ x: 40 + Math.random()*(W-80), y: -16, vy: 2.1 + Math.random()*0.9, kind, r: 16 });
+    }
+  }
+
+  function step(){
+    frame++;
+    if(!running){ draw(); requestAnimationFrame(step); return; }
+    if(keys.has('ArrowLeft'))  player.x -= player.speed;
+    if(keys.has('ArrowRight')) player.x += player.speed;
+    player.x = Math.max(40, Math.min(W-40, player.x));
+
+    bullets.forEach(b=> b.y += b.vy);
+    bullets = bullets.filter(b=> b.y>-30);
+
+    let reachedEdge = false;
+    for(const m of invaders){
+      if(!m.alive) continue;
+      m.x += m.vx*m.dir;
+      if(m.x < 30 || m.x > W-30) reachedEdge = true;
+    }
+    if(reachedEdge){ for(const m of invaders){ m.y += 18; m.dir *= -1; } }
+
+    for(const b of bullets){
+      for(const m of invaders){
+        if(!m.alive) continue;
+        if(Math.abs(b.x - m.x) < m.w/2 && Math.abs(b.y - m.y) < m.h/2){
+          m.alive = false; b.y = -9999;
+          if(m.good){ score += 150; sensitivity = Math.min(100, sensitivity + 2); }
+          else { score += 25; specificity = Math.max(0, specificity - 6); }
+        }
+      }
+    }
+
+    // spawn + move power-ups
+    maybeSpawnPower();
+    powerups.forEach(p=> p.y += p.vy);
+
+    // collect power-ups (larger hitbox to match bigger icons)
+    for(const p of powerups){
+      if(Math.abs(p.x - player.x) < 38 && Math.abs(p.y - player.y) < 32){
+        applyPower(p.kind);
+        p.collected = true;
+      }
+    }
+    powerups = powerups.filter(p=> !p.collected && p.y < H+40);
+
+    // penalties for missed targets
+    for(const m of invaders){
+      if(m.alive && m.good && m.y > H-140){
+        m.alive = false;
+        sensitivity = Math.max(0, sensitivity - 8);
+      }
+    }
+
+    if(specificity < 60 || sensitivity < 60){
+      lives -= 1; specificity = 100; sensitivity = 100; player.x = W/2; bullets=[]; powerups=[]; spawnWave();
+      if(lives<=0){ running=false; }
+    }
+
+    if(invaders.every(m=>!m.alive)){ level += 1; score += 500; spawnWave(); }
+
+    draw();
+    requestAnimationFrame(step);
+  }
+
+  // Power-up effects
+  let timers = { qc:0, block:0 };
+  function applyPower(kind){
+    if(kind==='QC'){ timers.qc = 600; specificity = Math.min(100, specificity + 10); score += 100; }
+    if(kind==='Block'){ timers.block = 600; score += 100; }
+    if(kind==='Ctrl'){ sensitivity = Math.min(100, sensitivity + 12); score += 150; }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // powerup banners
+    let row = 0;
+    if(timers.qc>0){ timers.qc--; labelTopLeft('QC: specificity tightened', row++); }
+    if(timers.block>0){ timers.block--; labelTopLeft('Background blocked', row++); }
+
+    // bullets
+    ctx.fillStyle = '#c084fc';
+    bullets.forEach(b=> ctx.fillRect(b.x-2,b.y-10,4,10));
+
+    // invaders
+    for(const m of invaders){ if(!m.alive) continue; drawInvader(m); }
+
+    // power-ups
+    for(const p of powerups){ drawPower(p); }
+
+    // player antibody
+    drawAntibody(player.x, player.y);
+
+    // block visual dim
+    if(timers.block>0){
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fillRect(0,0,W,H);
+    }
+
+    updateHud();
+  }
+
+  // Antibody shape (thick IgG)
+  function drawAntibody(cx, cy){
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.lineCap = 'round';
+
+    // heavy chains: blue
+    ctx.strokeStyle = '#4da6ff';
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -36); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -36); ctx.lineTo(-28, -66); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -36); ctx.lineTo( 28, -66); ctx.stroke();
+
+    // light chains: gray
+    ctx.strokeStyle = '#bfc7d1';
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(-5, -34); ctx.lineTo(-33, -64); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo( 5, -34); ctx.lineTo( 33, -64); ctx.stroke();
+
+    // tips + base
+    ctx.fillStyle = '#4da6ff';
+    roundRect(-36, -72, 12, 12, 6);
+    roundRect( 24, -72, 12, 12, 6);
+    roundRect(-6,  -6, 12, 10, 4);
+    ctx.restore();
+  }
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawInvader(m){
+    ctx.save();
+    ctx.translate(m.x,m.y);
+    ctx.fillStyle = m.good ? '#6ee7a8' : '#ff6565';
+    ctx.beginPath();
+    ctx.moveTo(-22,8); ctx.quadraticCurveTo(0,-18,22,8); ctx.lineTo(12,12); ctx.lineTo(-12,12); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.font = '12px var(--mono)'; ctx.textAlign='center'; ctx.fillText(m.label, 0, -12);
+    ctx.restore();
+  }
+
+  function drawPower(p){
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = '#8ab4ff';
+    ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#e7efff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#08132a'; ctx.font='bold 13px var(--mono)'; ctx.textAlign='center';
+    const letter = p.kind==='Ctrl' ? 'C' : p.kind[0];
+    ctx.fillText(letter, 0, 5);
+    ctx.restore();
+  }
+
+  function labelTopLeft(text, row=0){
+    ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(8,8+row*22,210,18);
+    ctx.fillStyle='#fff'; ctx.font='12px var(--mono)'; ctx.fillText(text, 14, 22+row*22);
+  }
+
+  function updateHud(){
+    HUD.score.textContent = score;
+    HUD.lives.textContent = lives;
+    HUD.level.textContent = level;
+    HUD.spec.textContent = Math.round(specificity)+'%';
+    HUD.sens.textContent = Math.round(sensitivity)+'%';
+    HUD.prog.textContent = PROGRAMS[programKey].name;
+  }
+
+  document.getElementById('restart').addEventListener('click', restart);
+  const sel = document.getElementById('programSelect');
+  sel.addEventListener('change', () => { programKey = sel.value; HUD.prog.textContent = PROGRAMS[programKey].name; spawnWave(); });
+
+  // Start
+  spawnWave();
+  step();
+
+  /* ---------- Touch controls ---------- */
+  const pad = document.getElementById('touchpad');
+  const btnLeft = document.getElementById('btnLeft');
+  const btnRight = document.getElementById('btnRight');
+  const btnFire = document.getElementById('btnFire');
+  const btnPause = document.getElementById('btnPause');
+
+  function showTouchpadIfMobile(){
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    pad.style.display = isTouch ? 'flex' : 'none';
+  }
+  showTouchpadIfMobile();
+
+  function press(key){ keys.add(key); }
+  function release(key){ keys.delete(key); }
+
+  function attachHold(btn, key){
+    const down = (e)=>{ e.preventDefault(); press(key); };
+    const up = (e)=>{ e.preventDefault(); release(key); };
+    btn.addEventListener('pointerdown', down);
+    btn.addEventListener('pointerup', up);
+    btn.addEventListener('pointerleave', up);
+    btn.addEventListener('pointercancel', up);
+  }
+  attachHold(btnLeft, 'ArrowLeft');
+  attachHold(btnRight, 'ArrowRight');
+
+  let fireTimer = null;
+  btnFire.addEventListener('pointerdown', e=>{ e.preventDefault(); shoot(); fireTimer = setInterval(shoot, 170); });
+  const stopFire = e=>{ if(e){e.preventDefault();} clearInterval(fireTimer); fireTimer=null; };
+  btnFire.addEventListener('pointerup', stopFire);
+  btnFire.addEventListener('pointerleave', stopFire);
+  btnFire.addEventListener('pointercancel', stopFire);
+
+  btnPause.addEventListener('pointerdown', e=>{ e.preventDefault(); running = !running; });
+
+  ['touchstart','touchmove','touchend'].forEach(type=>{
+    document.addEventListener(type, (e)=>{ if(e.target.closest('#touchpad') || e.target===canvas) e.preventDefault(); }, {passive:false});
+  });
+})();
+</script>
+</body>
+</html>
